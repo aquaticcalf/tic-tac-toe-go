@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>tic tac toe</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div class="status text-center font-bold mt-4" id="status">connecting...</div>
+  <div class="board grid grid-cols-3 gap-2 mx-auto w-96">
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="0"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="1"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="2"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="3"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="4"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="5"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="6"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="7"></button>
+    <button class="cell bg-gray-200 h-24 w-24 text-3xl font-bold cursor-pointer" data-index="8"></button>
+  </div>
+
+  <script>
+    let socket;
+    let current_player;
+    let current_turn;
+    
+    const game_id = new URLSearchParams(window.location.search).get('game') || 
+                    Math.random().toString(36).substring(2, 15);
+    
+    if (!window.location.search.includes('game')) {
+      window.history.pushState({}, '', `?game=${game_id}`);
+    }
+
+    socket = new WebSocket(`ws://localhost:8080/ws?game=${game_id}`);
+
+    socket.onopen = () => {
+      document.getElementById('status').textContent = 'connected! waiting for opponent...'
+    }
+
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      
+      switch (message.type) {
+        case 'init':
+          current_player = message.player;
+          current_turn = message.turn;
+          update_board(message.board);
+          update_status();
+          break;
+          
+        case 'update':
+          current_turn = message.turn;
+          update_board(message.board);
+          update_status();
+          break;
+          
+        case 'gameover':
+          update_board(message.board);
+          document.getElementById('status').textContent = 
+              message.player === current_player ? 'you won!' : 'you lost!';
+          break;
+      }
+    }
+
+    socket.onclose = () => {
+      document.getElementById('status').textContent = 'disconnected';
+    }
+
+    document.querySelectorAll('.cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        if (current_turn === current_player) {
+          const position = parseInt(cell.dataset.index);
+          socket.send(JSON.stringify({
+            type: 'move',
+            position: position
+          }));
+        }
+      })
+    })
+
+    function update_board(board) {
+      document.querySelectorAll('.cell').forEach((cell, index) => {
+        cell.textContent = board[index];
+      })
+    }
+
+    function update_status() {
+      const status = document.getElementById('status');
+      if (current_turn === current_player) {
+        status.textContent = 'your turn!';
+      } else {
+        status.textContent = "opponent's turn";
+      }
+    }
+
+    document.getElementById('status').innerHTML += '<br>share this link to play: ' + 
+      `<a href="${window.location.href}">${window.location.href}</a>`;
+  </script>
+</body>
+</html>
