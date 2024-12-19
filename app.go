@@ -2,6 +2,7 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "log"
     "net/http"
@@ -10,56 +11,36 @@ import (
     "time"
 
     "github.com/gorilla/websocket"
-    "go.mongodb.org/mongo-driver/bson"
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
+    "github.com/supabase-community/supabase-go"
+    "golang.org/x/oauth2"
+    "golang.org/x/oauth2/github"
 )
 
-type game_state int
+type GameState int
 
 const (
-    waiting game_state = iota
-    playing
-    finished
+    Waiting GameState = iota
+    Playing
+    Finished
 )
 
-type move_history struct {
-    Position int       `bson:"position"`
-    Symbol   string    `bson:"symbol"`
-    Time     time.Time `bson:"time"`
+type Player struct {
+    ID        string `json:"id"`
+    Name      string `json:"name"`
+    Symbol    string `json:"symbol"`
+    AvatarURL string `json:"avatar_url"`
+    Token     string `json:"token"`
 }
 
-type game struct {
-    ID            string         `bson:"_id"`
-    Board         [9]string      `bson:"board"`
-    Players       map[string]*player `bson:"-"`
-    CurrentTurn   string         `bson:"current_turn"`
-    State         game_state     `bson:"state"`
-    LastActive    time.Time      `bson:"last_active"`
-    MoveHistory   []move_history `bson:"move_history"`
-    WinningPlayer string         `bson:"winning_player,omitempty"`
-    StartTime     time.Time      `bson:"start_time"`
-    mu           sync.Mutex      `bson:"-"`
-}
-
-type player struct {
-    Conn       *websocket.Conn
-    Symbol     string
-    IsActive   bool
-    JoinTime   time.Time
-    MoveCount  int
-}
-
-type message struct {
-    Type        string     `json:"type"`
-    Position    int        `json:"position,omitempty"`
-    Player      string     `json:"player,omitempty"`
-    Board       [9]string  `json:"board,omitempty"`
-    Turn        string     `json:"turn,omitempty"`
-    Error       string     `json:"error,omitempty"`
-    State       game_state `json:"state,omitempty"`
-    MoveHistory []move_history `json:"move_history,omitempty"`
-    TimeLeft    int        `json:"time_left,omitempty"`
+type Game struct {
+    ID            string               `json:"id"`
+    Board         [9]string           `json:"board"`
+    Players       map[string]*Player  `json:"players"`
+    CurrentTurn   string             `json:"current_turn"`
+    State         GameState          `json:"state"`
+    LastActive    time.Time          `json:"last_active"`
+    WinningCells  []int             `json:"winning_cells,omitempty"`
+    mu            sync.Mutex
 }
 
 var (
@@ -70,257 +51,292 @@ var (
             return true
         },
     }
+
+    games = make(map[string]*Game)
+    gamesMutex sync.RWMutex
     
-    games = make(map[string]*game)
-    games_mutex sync.Mutex
-    cleanup_time = 30 * time.Minute
-    move_timeout = 30 * time.Second
+    supabaseClient *supabase.Client
     
-    mongo_client *mongo.Client
-    games_collection *mongo.Collection
+    oauthConfig = &oauth2.Config{
+        ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+        ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+        Endpoint:     github.Endpoint,
+        RedirectURL:  "http://localhost:8080/auth/github/callback",
+        Scopes:       []string{"user"},
+    }
 )
 
-func init_mongodb() error {
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    
-    mongo_uri := os.Getenv("MONGODB_URI")
-    if mongo_uri == "" {
-        log.Fatal("MONGODB_URI environment variable is not set")
-    }
-    
-    client_options := options.Client().ApplyURI(mongo_uri)
-    client, err := mongo.Connect(ctx, client_options)
-    if err != nil {
-        return fmt.Errorf("failed to connect to mongodb: %v", err)
-    }
-    
-    err = client.Ping(ctx, nil)
-    if err != nil {
-        return fmt.Errorf("failed to ping mongodb: %v", err)
-    }
-    
-    mongo_client = client
-    games_collection = client.Database("tictactoe").Collection("games")
-    
-    return nil
+var connections = make(map[string]*websocket.Conn)
+
+func init() {
+    url := os.Getenv("SUPABASE_URL")
+    key := os.Getenv("SUPABASE_KEY")
+    supabaseClient = supabase.CreateClient(url, key)
 }
 
 func main() {
-    if err := init_mongodb(); err != nil {
-        log.Fatal(err)
-    }
-    
-    go cleanup_inactive_games()
-    
-    http.HandleFunc("/ws", handle_connections)
     http.Handle("/", http.FileServer(http.Dir("static")))
-    
-    log.Println("server starting on :8080")
-    if err := http.ListenAndServe(":8080", nil); err != nil {
-        log.Fatal("ListenAndServe: ", err)
+    http.HandleFunc("/auth/github/callback", handleGitHubCallback)
+    http.HandleFunc("/api/user", handleUserInfo)
+    http.HandleFunc("/api/stats", handleStats)
+    http.HandleFunc("/api/logout", handleLogout)
+    http.HandleFunc("/ws", handleWebSocket)
+
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080"
     }
+
+    log.Printf("Server starting on :%s", port)
+    log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-func get_or_create_game(game_id string) (*game, error) {
-    games_mutex.Lock()
-    defer games_mutex.Unlock()
-    
-    if g, exists := games[game_id]; exists {
-        return g, nil
+func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
+    code := r.URL.Query().Get("code")
+    token, err := oauthConfig.Exchange(r.Context(), code)
+    if err!= nil {
+        http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
+        return
+    }
+
+    client := oauthConfig.Client(r.Context(), token)
+    resp, err := client.Get("https://api.github.com/user")
+    if err!= nil {
+        http.Error(w, "Failed to get user info", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    var githubUser struct {
+        ID        int    `json:"id"`
+        Login     string `json:"login"`
+        AvatarURL string `json:"avatar_url"`
     }
     
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-    
-    var saved_game game
-    err := games_collection.FindOne(ctx, bson.M{"_id": game_id}).Decode(&saved_game)
-    
-    if err == nil {
-        saved_game.Players = make(map[string]*player)
-        games[game_id] = &saved_game
-        return &saved_game, nil
+    if err := json.NewDecoder(resp.Body).Decode(&githubUser); err!= nil {
+        http.Error(w, "Failed to decode user info", http.StatusInternalServerError)
+        return
     }
-    
-    new_game := &game{
-        ID:          game_id,
-        Players:     make(map[string]*player),
-        CurrentTurn: "X",
-        State:       waiting,
-        LastActive:  time.Now(),
-        StartTime:   time.Now(),
-        MoveHistory: make([]move_history, 0),
+
+    player := Player{
+        ID:        fmt.Sprintf("%d", githubUser.ID),
+        Name:      githubUser.Login,
+        AvatarURL: githubUser.AvatarURL,
+        Token:     token.AccessToken,
     }
-    
-    games[game_id] = new_game
-    
-    _, err = games_collection.InsertOne(ctx, new_game)
-    if err != nil {
-        return nil, fmt.Errorf("failed to save new game: %v", err)
+
+    // Store player in Supabase
+    ctx := context.Background()
+    _, err = supabaseClient.From("players").Insert(ctx, []Player{player})
+    if err!= nil {
+        http.Error(w, "Failed to store user", http.StatusInternalServerError)
+        return
     }
-    
-    return new_game, nil
+
+    // Set session cookie
+    http.SetCookie(w, &http.Cookie{
+        Name:     "session_token",
+        Value:    token.AccessToken,
+        Path:     "/",
+        HttpOnly: true,
+        Secure:   r.TLS!= nil,
+        SameSite: http.SameSiteLaxMode,
+    })
+
+    http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
 
-func handle_move(g *game, p *player, position int) {
-    g.mu.Lock()
-    defer g.mu.Unlock()
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+    gameID := r.URL.Query().Get("game")
+    token := r.URL.Query().Get("token")
+    if gameID == "" || token == "" {
+        http.Error(w, "Missing game ID or token", http.StatusBadRequest)
+        return
+    }   
+
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err!= nil {
+        log.Printf("WebSocket upgrade error: %v", err)
+        return
+    }
+    defer conn.Close()
+
+    // Get player from Supabase
+    ctx := context.Background()
+    var player Player
+    err = supabaseClient.From("players").Select("*").Eq("token", token).Single(ctx).Scan(&player)
+    if err!= nil {
+        log.Printf("Failed to get player: %v", err)
+        return
+    }
+
+    game := getOrCreateGame(gameID)
+    game.mu.Lock()
     
-    if g.State != playing || g.CurrentTurn != p.Symbol || 
-       position < 0 || position >= 9 || g.Board[position] != "" {
-        send_error(p, "invalid move")
+    // Assign symbol to player
+    if len(game.Players) == 0 {
+        player.Symbol = "X"
+    } else if len(game.Players) == 1 {
+        player.Symbol = "O"
+        game.State = Playing
+    } else {
+        game.mu.Unlock()
+        conn.WriteJSON(map[string]string{"type": "error", "error": "Game is full"})
         return
     }
     
-    move := move_history{
-        Position: position,
-        Symbol:   p.Symbol,
-        Time:     time.Now(),
+    game.Players[player.ID] = &player
+    connections[player.ID] = conn
+    game.mu.Unlock()
+
+    // Send initial game state
+    conn.WriteJSON(map[string]interface{}{
+        "type":   "init",
+        "player": player.Symbol,
+        "board":  game.Board,
+        "turn":   game.CurrentTurn,
+        "state":  game.State,
+    })
+
+    // Handle player messages
+    for {
+        var msg struct {
+            Type     string `json:"type"`
+            Position int    `json:"position"`
+        }
+
+        if err := conn.ReadJSON(&msg); err!= nil {
+            break
+        }
+
+        if msg.Type == "move" {
+            handleMove(game, &player, msg.Position)
+        } else if msg.Type == "new_game" {
+            handleNewGame(game)
+        }
     }
-    
-    g.Board[position] = p.Symbol
-    g.MoveHistory = append(g.MoveHistory, move)
-    g.CurrentTurn = get_next_turn(g.CurrentTurn)
-    p.MoveCount++
-    
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-    
-    update := bson.M{
-        "$set": bson.M{
-            "board":        g.Board,
-            "current_turn": g.CurrentTurn,
-            "move_history": g.MoveHistory,
-            "last_active": time.Now(),
-        },
+
+    // Clean up when player disconnects
+    game.mu.Lock()
+    delete(game.Players, player.ID)
+    delete(connections, player.ID)
+    if len(game.Players) == 0 {
+        gamesMutex.Lock()
+        delete(games, gameID)
+        gamesMutex.Unlock()
     }
-    
-    if winner := check_winner(g.Board); winner != "" {
-        g.State = finished
-        g.WinningPlayer = winner
-        update["$set"].(bson.M)["state"] = finished
-        update["$set"].(bson.M)["winning_player"] = winner
-        broadcast_game_over(g, winner)
-    } else if is_board_full(g.Board) {
-        g.State = finished
-        update["$set"].(bson.M)["state"] = finished
-        broadcast_game_over(g, "")
-    } else {
-        broadcast_game_state(g)
-    }
-    
-    games_collection.UpdateOne(ctx, bson.M{"_id": g.ID}, update)
+    game.mu.Unlock()
 }
 
-func check_special_win(board [9]string) string {
-    patterns := map[string][]int{
-        "diagonal_win":    {0, 4, 8},
-        "reverse_diagonal_win": {2, 4, 6},
-        "center_row_win": {3, 4, 5},
-        "center_col_win": {1, 4, 7},
+func getOrCreateGame(gameID string) *Game {
+    gamesMutex.Lock()
+    defer gamesMutex.Unlock()
+
+    if game, exists := games[gameID]; exists {
+        return game
+    }
+
+    game := &Game{
+        ID:          gameID,
+        Players:     make(map[string]*Player),
+        CurrentTurn: "X",
+        State:      Waiting,
+        LastActive: time.Now(),
     }
     
-    for _, positions := range patterns {
-        if board[positions[0]] != "" &&
-           board[positions[0]] == board[positions[1]] &&
-           board[positions[1]] == board[positions[2]] {
-            return board[positions[0]]
+    games[gameID] = game
+    return game
+}
+
+func handleMove(game *Game, player *Player, position int) {
+    game.mu.Lock()
+    defer game.mu.Unlock()
+
+    if game.State!= Playing || 
+       game.CurrentTurn!= player.Symbol || 
+       position < 0 || position >= 9 || 
+       game.Board[position]!= "" {
+        return
+    }
+
+    game.Board[position] = player.Symbol
+    game.LastActive = time.Now()
+
+    if winner := checkWinner(game.Board); winner!= "" {
+        game.State = Finished
+        game.WinningCells = getWinningCells(game.Board)
+        broadcastGameOver(game, winner)
+        updateStats(player.ID, "win")
+    } else if isBoardFull(game.Board) {
+        game.State = Finished
+        broadcastGameOver(game, "")
+        updateStats(player.ID, "draw")
+    } else {
+        game.CurrentTurn = getNextTurn(game.CurrentTurn)
+        broadcastGameState(game)
+    }
+}
+
+func checkWinner(board [9]string) string {
+    lines := [][3]int{
+        {0, 1, 2}, {3, 4, 5}, {6, 7, 8}, // rows
+        {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, // columns
+        {0, 4, 8}, {2, 4, 6},            // diagonals
+    }
+
+    for _, line := range lines {
+        if board[line[0]]!= "" &&
+           board[line[0]] == board[line[1]] &&
+           board[line[1]] == board[line[2]] {
+            return board[line[0]]
         }
     }
     return ""
 }
 
-func broadcast_game_state(g *game) {
-    msg := message{
-        Type:        "update",
-        Board:       g.Board,
-        Turn:        g.CurrentTurn,
-        State:       g.State,
-        MoveHistory: g.MoveHistory,
-        TimeLeft:    int(move_timeout.Seconds()),
+func getWinningCells(board [9]string) []int {
+    lines := [][3]int{
+        {0, 1, 2}, {3, 4, 5}, {6, 7, 8},
+        {0, 3, 6}, {1, 4, 7}, {2, 5, 8},
+        {0, 4, 8}, {2, 4, 6},
     }
-    broadcast(g, msg)
+
+    for _, line := range lines {
+        if board[line[0]]!= "" &&
+           board[line[0]] == board[line[1]] &&
+           board[line[1]] == board[line[2]] {
+            return []int{line[0], line[1], line[2]}
+        }
+    }
+    return nil
 }
 
-
-
-func handleConnections(w http.ResponseWriter, r *http.Request) {
-    gameID := r.URL.Query().Get("game")
-    if gameID == "" {
-        http.Error(w, "Missing game ID", http.StatusBadRequest)
-        return
+func broadcastGameState(game *Game) {
+    msg := map[string]interface{}{
+        "type":  "update",
+        "board": game.Board,
+        "turn":  game.CurrentTurn,
+        "state": game.State,
     }
 
-    ws, err := upgrader.Upgrade(w, r, nil)
-    if err != nil {
-        log.Printf("upgrade error: %v", err)
-        return
-    }
-    defer ws.Close()
-
-    gamesMutex.Lock()
-    game, exists := games[gameID]
-    if !exists {
-        game = &Game{
-            Players: make(map[string]*websocket.Conn),
-            CurrentTurn: "X",
+    for _, player := range game.Players {
+        if conn, ok := connections[player.ID]; ok {
+            conn.WriteJSON(msg)
         }
-        games[gameID] = game
     }
-    
-    player := "O"
-    if len(game.Players) == 0 {
-        player = "X"
+}
+
+func broadcastGameOver(game *Game, winner string) {
+    msg := map[string]interface{}{
+        "type":         "gameover",
+        "board":        game.Board,
+        "winner":       winner,
+        "winning_cells": game.WinningCells,
     }
-    game.Players[player] = ws
-    gamesMutex.Unlock()
 
-    initMsg := Message{
-        Type: "init",
-        Player: player,
-        Board: game.Board,
-        Turn: game.CurrentTurn,
-    }
-    ws.WriteJSON(initMsg)
-
-    for {
-        var msg Message
-        err := ws.ReadJSON(&msg)
-        if err != nil {
-            log.Printf("error reading message: %v", err)
-            game.mu.Lock()
-            delete(game.Players, player)
-            game.mu.Unlock()
-            break
-        }
-
-        if msg.Type == "move" {
-            game.mu.Lock()
-            if game.CurrentTurn == player && game.Board[msg.Position] == "" {
-                game.Board[msg.Position] = player
-                game.CurrentTurn = getNextTurn(game.CurrentTurn)
-                
-                updateMsg := Message{
-                    Type: "update",
-                    Board: game.Board,
-                    Turn: game.CurrentTurn,
-                }
-                
-                for _, conn := range game.Players {
-                    conn.WriteJSON(updateMsg)
-                }
-
-                if winner := checkWinner(game.Board); winner != "" {
-                    winMsg := Message{
-                        Type: "gameover",
-                        Player: winner,
-                    }
-                    for _, conn := range game.Players {
-                        conn.WriteJSON(winMsg)
-                    }
-                }
-            }
-            game.mu.Unlock()
+    for _, player := range game.Players {
+        if conn, ok := connections[player.ID]; ok {
+            conn.WriteJSON(msg)
         }
     }
 }
@@ -332,21 +348,117 @@ func getNextTurn(current string) string {
     return "X"
 }
 
-func checkWinner(board [9]string) string {
-    // winning combinations
-    lines := [][3]int{
-        {0, 1, 2}, {3, 4, 5}, {6, 7, 8}, // rows
-        {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, // columns
-        {0, 4, 8}, {2, 4, 6}, // diagonals
-    }
-
-    for _, line := range lines {
-        if board[line[0]] != "" &&
-           board[line[0]] == board[line[1]] &&
-           board[line[1]] == board[line[2]] {
-            return board[line[0]]
+func isBoardFull(board [9]string) bool {
+    for _, cell := range board {
+        if cell == "" {
+            return false
         }
     }
-    
-    return ""
+    return true
+}
+
+func handleNewGame(game *Game) {
+    game.mu.Lock()
+    defer game.mu.Unlock()
+
+    // Reset the game state
+    game.Board = [9]string{}
+    game.CurrentTurn = "X"
+    game.State = Waiting
+    game.LastActive = time.Now()
+    game.WinningCells = nil
+
+    // Send the updated game state to all connected clients
+    broadcastGameState(game)
+}
+
+func updateStats(playerID string, result string) {
+    ctx := context.Background()
+    var stats struct {
+        Wins   int `json:"wins"`
+        Losses int `json:"losses"`
+        Draws  int `json:"draws"`
+    }
+
+    err := supabaseClient.From("stats").Select("*").Eq("player_id", playerID).Single(ctx).Scan(&stats)
+    if err!= nil {
+        return
+    }
+
+    switch result {
+    case "win":
+        stats.Wins++
+    case "loss":
+        stats.Losses++
+    case "draw":
+        stats.Draws++
+    }
+
+    _, err = supabaseClient.From("stats").Upsert(ctx, map[string]interface{}{
+        "player_id": playerID,
+        "wins":     stats.Wins,
+        "losses":   stats.Losses,
+        "draws":    stats.Draws,
+    })
+    if err!= nil {
+        log.Printf("Failed to update stats: %v", err)
+    }
+}
+
+func handleUserInfo(w http.ResponseWriter, r *http.Request) {
+    token := r.Header.Get("Authorization")
+    if token == "" {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    ctx := context.Background()
+    var player Player
+    err := supabaseClient.From("players").Select("*").Eq("token", token).Single(ctx).Scan(&player)
+    if err!= nil {
+        http.Error(w, "Player not found", http.StatusNotFound)
+        return
+    }
+
+    json.NewEncoder(w).Encode(player)
+}
+
+func handleStats(w http.ResponseWriter, r *http.Request) {
+    playerID := r.URL.Query().Get("player_id")
+    if playerID == "" {
+        http.Error(w, "Player ID is required", http.StatusBadRequest)
+        return
+    }
+
+    ctx := context.Background()
+    var stats struct {
+        Wins   int `json:"wins"`
+        Losses int `json:"losses"`
+        Draws  int `json:"draws"`
+    }
+
+    err := supabaseClient.From("stats").Select("*").Eq("player_id", playerID).Single(ctx).Scan(&stats)
+    if err!= nil {
+        http.Error(w, "Stats not found", http.StatusNotFound)
+        return
+    }
+
+    json.NewEncoder(w).Encode(stats)
+}
+
+func handleLogout(w http.ResponseWriter, r *http.Request) {
+    token := r.Header.Get("Authorization")
+    if token == "" {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    ctx := context.Background()
+    _, err := supabaseClient.From("players").Delete(ctx, supabase.Eq("token", token))
+    if err!= nil {
+        http.Error(w, "Failed to delete player", http.StatusInternalServerError)
+        return
+    }
+
+    http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
