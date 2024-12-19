@@ -1,128 +1,218 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>tic tac toe</title>
+    <title>Tic Tac Toe</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Finger+Paint&display=swap" rel="stylesheet">
     <style>
-		body {
-			font-family: 'Finger Paint', cursive;
-		}
+        body {
+            font-family: 'Finger Paint', cursive;
+        }
 
-		.box {
-			border-right: 2px solid;
-			border-bottom: 2px solid;
-		}
+        .box {
+            border-right: 2px solid;
+            border-bottom: 2px solid;
+            transition: background-color 0.3s ease;
+        }
 
-		.box:nth-child(3n) {
-			border-right: none;
-		}
+        .box:nth-child(3n) {
+            border-right: none;
+        }
 
-		.box:nth-child(6) ~ .box {
-			border-bottom: none;
-		}
+        .box:nth-child(6) ~ .box {
+            border-bottom: none;
+        }
 
-		#gameboard {
-			width: 300px;
-			display: flex;
-			flex-wrap: wrap;
-			margin-top: 40px;
-		}
+        #gameboard {
+            width: 300px;
+            display: flex;
+            flex-wrap: wrap;
+            margin-top: 40px;
+        }
+
+        .box:hover:empty {
+            background-color: rgba(80, 16, 208, 0.1);
+        }
+
+        .disabled {
+            cursor: not-allowed !important;
+        }
     </style>
 </head>
 <body class="bg-[#EEA5A6] text-[#5010d0] flex flex-col items-center justify-center min-h-screen">
-  <h1 class="text-[54px] uppercase">Tic Tac Toe</h1>
-  <div class="status text-center font-bold mt-4" id="status">connecting...</div>
-  <div class="board w-96" id="gameboard">
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="0"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="1"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="2"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="3"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="4"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="5"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="6"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="7"></button>
-    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="8"></button>
-  </div>
+    <h1 class="text-[54px] uppercase">Tic Tac Toe</h1>
+    <div class="status text-center font-bold mt-4 text-xl" id="status">Connecting...</div>
+    <div class="board w-96" id="gameboard">
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="0"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="1"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="2"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="3"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="4"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="5"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="6"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="7"></button>
+        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="8"></button>
+    </div>
+    <div id="share-link" class="mt-8 text-center hidden">
+        <p class="mb-2">Share this link to play with a friend:</p>
+        <input type="text" id="game-url" readonly class="px-4 py-2 rounded border border-[#5010d0] bg-white/50 w-96 text-center" />
+        <button onclick="copyGameLink()" class="mt-2 px-4 py-2 bg-[#5010d0] text-white rounded hover:bg-opacity-90">Copy Link</button>
+    </div>
+    <button onclick="newGame()" id="new-game" class="mt-8 px-6 py-3 bg-[#5010d0] text-white rounded-lg hover:bg-opacity-90 text-xl hidden">New Game</button>
 
-  <script>
-    let socket
-    let current_player
-    let current_turn
-    
-    const game_id = new URLSearchParams(window.location.search).get('game') || 
-                    Math.random().toString(36).substring(2, 15)
-    
-    if (!window.location.search.includes('game')) {
-      window.history.pushState({}, '', `?game=${game_id}`)
-    }
-
-    socket = new WebSocket(`ws://localhost:8080/ws?game=${game_id}`)
-
-    socket.onopen = () => {
-      document.getElementById('status').textContent = 'connected! waiting for opponent...'
-    }
-
-    socket.onmessage = (event) => {
-      const message = JSON.parse(event.data)
-      
-      switch (message.type) {
-        case 'init':
-          current_player = message.player
-          current_turn = message.turn
-          update_board(message.board)
-          update_status()
-          break
-          
-        case 'update':
-          current_turn = message.turn
-          update_board(message.board)
-          update_status()
-          break
-          
-        case 'gameover':
-          update_board(message.board)
-          document.getElementById('status').textContent = 
-              message.player === current_player ? 'you won!' : 'you lost!'
-          break
-      }
-    }
-
-    socket.onclose = () => {
-      document.getElementById('status').textContent = 'disconnected'
-    }
-
-    document.querySelectorAll('.cell').forEach(cell => {
-      cell.addEventListener('click', () => {
-        if (current_turn === current_player) {
-          const position = parseInt(cell.dataset.index)
-          socket.send(JSON.stringify({
-            type: 'move',
-            position: position
-          }))
+    <script>
+        let socket
+        let current_player
+        let current_turn
+        let game_state
+        
+        const game_id = new URLSearchParams(window.location.search).get('game') || 
+                        Math.random().toString(36).substring(2, 15)
+        
+        if (!window.location.search.includes('game')) {
+            window.history.pushState({}, '', `?game=${game_id}`)
         }
-      })
-    })
 
-    function update_board(board) {
-      document.querySelectorAll('.cell').forEach((cell, index) => {
-        cell.textContent = board[index]
-      })
-    }
+        function initGame() {
+            socket = new WebSocket(`ws://localhost:8080/ws?game=${game_id}`)
+            
+            socket.onopen = () => {
+                document.getElementById('status').textContent = 'Connected! Waiting for opponent...'
+                document.getElementById('share-link').classList.remove('hidden')
+                document.getElementById('game-url').value = window.location.href
+            }
 
-    function update_status() {
-      const status = document.getElementById('status')
-      if (current_turn === current_player) {
-        status.textContent = 'your turn!'
-      } else {
-        status.textContent = "opponent's turn"
-      }
-    }
+            socket.onclose = () => {
+                document.getElementById('status').textContent = 'Disconnected - Please refresh the page'
+                disableBoard()
+            }
 
-    document.getElementById('status').innerHTML += '<br>share this link to play: ' + 
-      `<a href="${window.location.href}">${window.location.href}</a>`
-  </script>
+            socket.onerror = () => {
+                document.getElementById('status').textContent = 'Connection error - Please refresh the page'
+                disableBoard()
+            }
+
+            socket.onmessage = handleMessage
+        }
+
+        function handleMessage(event) {
+            const message = JSON.parse(event.data)
+            
+            switch (message.type) {
+                case 'init':
+                    current_player = message.player
+                    current_turn = message.turn
+                    game_state = message.state
+                    update_board(message.board)
+                    update_status()
+                    break
+                    
+                case 'update':
+                    current_turn = message.turn
+                    game_state = message.state
+                    update_board(message.board)
+                    update_status()
+                    break
+                    
+                case 'gameover':
+                    update_board(message.board)
+                    handle_game_over(message)
+                    break
+
+                case 'error':
+                    document.getElementById('status').textContent = `Error: ${message.error}`
+                    break
+            }
+        }
+
+        function handle_game_over(message) {
+            let status_text = ''
+            if (message.player === '') {
+                status_text = "It's a draw!"
+            } else if (message.player === current_player) {
+                status_text = 'You won! 🎉'
+            } else {
+                status_text = 'You lost! 😔'
+            }
+            document.getElementById('status').textContent = status_text
+            document.getElementById('new-game').classList.remove('hidden')
+            disableBoard()
+        }
+
+        function update_board(board) {
+            document.querySelectorAll('.cell').forEach((cell, index) => {
+                cell.textContent = board[index]
+                cell.disabled = board[index] !== ''
+                cell.classList.toggle('disabled', board[index] !== '')
+            })
+        }
+
+        function update_status() {
+            const status = document.getElementById('status')
+            if (game_state === 0) {
+                status.textContent = 'Waiting for opponent to join...'
+                disableBoard()
+            } else if (game_state === 1) {
+                if (current_turn === current_player) {
+                    status.textContent = 'Your turn!'
+                    enableBoard()
+                } else {
+                    status.textContent = "Opponent's turn"
+                    disableBoard()
+                }
+            }
+        }
+
+        function disableBoard() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.disabled = true
+                cell.classList.add('disabled')
+            })
+        }
+
+        function enableBoard() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                if (cell.textContent === '') {
+                    cell.disabled = false
+                    cell.classList.remove('disabled')
+                }
+            })
+        }
+
+        function copyGameLink() {
+            const gameUrl = document.getElementById('game-url')
+            gameUrl.select()
+            document.execCommand('copy')
+            window.getSelection().removeAllRanges()
+            
+            const copyButton = document.querySelector('#share-link button')
+            const originalText = copyButton.textContent
+            copyButton.textContent = 'copied!'
+            setTimeout(() => {
+                copyButton.textContent = originalText
+            }, 2000)
+        }
+
+        function newGame() {
+            window.location.href = window.location.origin + window.location.pathname
+        }
+
+        document.querySelectorAll('.cell').forEach(cell => {
+            cell.addEventListener('click', () => {
+                if (!cell.disabled && current_turn === current_player) {
+                    const position = parseInt(cell.dataset.index)
+                    socket.send(JSON.stringify({
+                        type: 'move',
+                        position: position
+                    }))
+                }
+            })
+        })
+
+        initGame()
+        disableBoard()
+    </script>
 </body>
 </html>
