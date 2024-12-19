@@ -14,7 +14,7 @@
         .box {
             border-right: 2px solid;
             border-bottom: 2px solid;
-            transition: background-color 0.3s ease;
+            transition: all 0.3s ease;
         }
 
         .box:nth-child(3n) {
@@ -39,27 +39,61 @@
         .disabled {
             cursor: not-allowed !important;
         }
+
+        .winning-cell {
+            background-color: rgba(80, 16, 208, 0.2);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { background-color: rgba(80, 16, 208, 0.2) };
+            50% { background-color: rgba(80, 16, 208, 0.4) };
+            100% { background-color: rgba(80, 16, 208, 0.2) };
+        }
     </style>
 </head>
 <body class="bg-[#EEA5A6] text-[#5010d0] flex flex-col items-center justify-center min-h-screen">
+    <div id="auth-section" class="text-center mb-8">
+        <button id="login-button" onclick="loginWithGithub()" class="bg-[#2d333b] text-white px-6 py-3 rounded-lg flex items-center gap-2 hover:bg-opacity-90">
+            <svg viewBox="0 0 24 24" class="w-6 h-6 fill-current"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            Sign in with GitHub
+        </button>
+        <div id="user-info" class="hidden">
+            <img id="avatar" class="w-12 h-12 rounded-full mx-auto mb-2" src="" alt="User avatar">
+            <p id="username" class="font-bold"></p>
+            <button onclick="logout()" class="mt-2 text-sm underline">Logout</button>
+        </div>
+    </div>
+
     <h1 class="text-[54px] uppercase">Tic Tac Toe</h1>
-    <div class="status text-center font-bold mt-4 text-xl" id="status">Connecting...</div>
-    <div class="board w-96" id="gameboard">
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="0"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="1"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="2"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="3"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="4"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="5"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="6"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="7"></button>
-        <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="8"></button>
+    <div class="status text-center font-bold mt-4 text-xl" id="status">Please sign in to play</div>
+    
+    <div id="game-container" class="hidden">
+        <div class="board w-96" id="gameboard">
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="0"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="1"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="2"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="3"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="4"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="5"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="6"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="7"></button>
+            <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="8"></button>
+        </div>
+        
+        <div id="game-stats" class="mt-8 text-center">
+            <p>Games Won: <span id="wins">0</span></p>
+            <p>Games Lost: <span id="losses">0</span></p>
+            <p>Games Drawn: <span id="draws">0</span></p>
+        </div>
+
+        <div id="share-link" class="mt-8 text-center hidden">
+            <p class="mb-2">Share this link to play with a friend:</p>
+            <input type="text" id="game-url" readonly class="px-4 py-2 rounded border border-[#5010d0] bg-white/50 w-96 text-center" />
+            <button onclick="copyGameLink()" class="mt-2 px-4 py-2 bg-[#5010d0] text-white rounded hover:bg-opacity-90">Copy Link</button>
+        </div>
     </div>
-    <div id="share-link" class="mt-8 text-center hidden">
-        <p class="mb-2">Share this link to play with a friend:</p>
-        <input type="text" id="game-url" readonly class="px-4 py-2 rounded border border-[#5010d0] bg-white/50 w-96 text-center" />
-        <button onclick="copyGameLink()" class="mt-2 px-4 py-2 bg-[#5010d0] text-white rounded hover:bg-opacity-90">Copy Link</button>
-    </div>
+
     <button onclick="newGame()" id="new-game" class="mt-8 px-6 py-3 bg-[#5010d0] text-white rounded-lg hover:bg-opacity-90 text-xl hidden">New Game</button>
 
     <script>
@@ -67,16 +101,77 @@
         let current_player
         let current_turn
         let game_state
+        let user_data = null
         
         const game_id = new URLSearchParams(window.location.search).get('game') || 
                         Math.random().toString(36).substring(2, 15)
         
-        if (!window.location.search.includes('game')) {
-            window.history.pushState({}, '', `?game=${game_id}`)
+        function loginWithGithub() {
+            const client_id = 'Iv23ctQGlyurWHvfouGU'
+            const redirect_uri = encodeURIComponent(window.location.origin + '/auth/github/callback')
+            window.location.href = `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${redirect_uri}&scope=user`
+        }
+
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/user')
+                if (response.ok) {
+                    user_data = await response.json()
+                    showUserInfo()
+                    initGame()
+                } else {
+                    showLoginButton()
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error)
+                showLoginButton()
+            }
+        }
+
+        function showUserInfo() {
+            document.getElementById('login-button').classList.add('hidden')
+            document.getElementById('user-info').classList.remove('hidden')
+            document.getElementById('game-container').classList.remove('hidden')
+            document.getElementById('avatar').src = user_data.avatar_url
+            document.getElementById('username').textContent = user_data.login
+            updateStats()
+        }
+
+        function showLoginButton() {
+            document.getElementById('login-button').classList.remove('hidden')
+            document.getElementById('user-info').classList.add('hidden')
+            document.getElementById('game-container').classList.add('hidden')
+        }
+
+        async function logout() {
+            try {
+                await fetch('/api/logout', { method: 'POST' })
+                user_data = null
+                showLoginButton()
+                if (socket) {
+                    socket.close()
+                }
+            } catch (error) {
+                console.error('Logout failed:', error)
+            }
+        }
+
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats')
+                const stats = await response.json()
+                document.getElementById('wins').textContent = stats.wins
+                document.getElementById('losses').textContent = stats.losses
+                document.getElementById('draws').textContent = stats.draws
+            } catch (error) {
+                console.error('Failed to fetch stats:', error)
+            }
         }
 
         function initGame() {
-            socket = new WebSocket(`ws://localhost:8080/ws?game=${game_id}`)
+            if (!user_data) return
+
+            socket = new WebSocket(`ws://${window.location.host}/ws?game=${game_id}&token=${user_data.token}`)
             
             socket.onopen = () => {
                 document.getElementById('status').textContent = 'Connected! Waiting for opponent...'
@@ -114,11 +209,18 @@
                     game_state = message.state
                     update_board(message.board)
                     update_status()
+                    if (message.winning_cells) {
+                        highlight_winning_cells(message.winning_cells)
+                    }
                     break
                     
                 case 'gameover':
                     update_board(message.board)
+                    if (message.winning_cells) {
+                        highlight_winning_cells(message.winning_cells)
+                    }
                     handle_game_over(message)
+                    updateStats()
                     break
 
                 case 'error':
@@ -127,92 +229,17 @@
             }
         }
 
-        function handle_game_over(message) {
-            let status_text = ''
-            if (message.player === '') {
-                status_text = "It's a draw!"
-            } else if (message.player === current_player) {
-                status_text = 'You won! 🎉'
-            } else {
-                status_text = 'You lost! 😔'
-            }
-            document.getElementById('status').textContent = status_text
-            document.getElementById('new-game').classList.remove('hidden')
-            disableBoard()
-        }
-
-        function update_board(board) {
-            document.querySelectorAll('.cell').forEach((cell, index) => {
-                cell.textContent = board[index]
-                cell.disabled = board[index] !== ''
-                cell.classList.toggle('disabled', board[index] !== '')
-            })
-        }
-
-        function update_status() {
-            const status = document.getElementById('status')
-            if (game_state === 0) {
-                status.textContent = 'Waiting for opponent to join...'
-                disableBoard()
-            } else if (game_state === 1) {
-                if (current_turn === current_player) {
-                    status.textContent = 'Your turn!'
-                    enableBoard()
-                } else {
-                    status.textContent = "Opponent's turn"
-                    disableBoard()
-                }
-            }
-        }
-
-        function disableBoard() {
+        function highlight_winning_cells(cells) {
             document.querySelectorAll('.cell').forEach(cell => {
-                cell.disabled = true
-                cell.classList.add('disabled')
+                cell.classList.remove('winning-cell')
             })
-        }
-
-        function enableBoard() {
-            document.querySelectorAll('.cell').forEach(cell => {
-                if (cell.textContent === '') {
-                    cell.disabled = false
-                    cell.classList.remove('disabled')
-                }
-            })
-        }
-
-        function copyGameLink() {
-            const gameUrl = document.getElementById('game-url')
-            gameUrl.select()
-            document.execCommand('copy')
-            window.getSelection().removeAllRanges()
             
-            const copyButton = document.querySelector('#share-link button')
-            const originalText = copyButton.textContent
-            copyButton.textContent = 'copied!'
-            setTimeout(() => {
-                copyButton.textContent = originalText
-            }, 2000)
-        }
-
-        function newGame() {
-            window.location.href = window.location.origin + window.location.pathname
-        }
-
-        document.querySelectorAll('.cell').forEach(cell => {
-            cell.addEventListener('click', () => {
-                if (!cell.disabled && current_turn === current_player) {
-                    const position = parseInt(cell.dataset.index)
-                    socket.send(JSON.stringify({
-                        type: 'move',
-                        position: position
-                    }))
-                }
+            cells.forEach(index => {
+                document.querySelector(`[data-index="${index}"]`).classList.add('winning-cell')
             })
-        })
+        }
 
-        initGame()
-        disableBoard()
+        checkAuth()
     </script>
 </body>
 </html>

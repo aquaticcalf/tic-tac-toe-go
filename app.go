@@ -241,3 +241,112 @@ func broadcast_game_state(g *game) {
     }
     broadcast(g, msg)
 }
+
+
+
+func handleConnections(w http.ResponseWriter, r *http.Request) {
+    gameID := r.URL.Query().Get("game")
+    if gameID == "" {
+        http.Error(w, "Missing game ID", http.StatusBadRequest)
+        return
+    }
+
+    ws, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        log.Printf("upgrade error: %v", err)
+        return
+    }
+    defer ws.Close()
+
+    gamesMutex.Lock()
+    game, exists := games[gameID]
+    if !exists {
+        game = &Game{
+            Players: make(map[string]*websocket.Conn),
+            CurrentTurn: "X",
+        }
+        games[gameID] = game
+    }
+    
+    player := "O"
+    if len(game.Players) == 0 {
+        player = "X"
+    }
+    game.Players[player] = ws
+    gamesMutex.Unlock()
+
+    initMsg := Message{
+        Type: "init",
+        Player: player,
+        Board: game.Board,
+        Turn: game.CurrentTurn,
+    }
+    ws.WriteJSON(initMsg)
+
+    for {
+        var msg Message
+        err := ws.ReadJSON(&msg)
+        if err != nil {
+            log.Printf("error reading message: %v", err)
+            game.mu.Lock()
+            delete(game.Players, player)
+            game.mu.Unlock()
+            break
+        }
+
+        if msg.Type == "move" {
+            game.mu.Lock()
+            if game.CurrentTurn == player && game.Board[msg.Position] == "" {
+                game.Board[msg.Position] = player
+                game.CurrentTurn = getNextTurn(game.CurrentTurn)
+                
+                updateMsg := Message{
+                    Type: "update",
+                    Board: game.Board,
+                    Turn: game.CurrentTurn,
+                }
+                
+                for _, conn := range game.Players {
+                    conn.WriteJSON(updateMsg)
+                }
+
+                if winner := checkWinner(game.Board); winner != "" {
+                    winMsg := Message{
+                        Type: "gameover",
+                        Player: winner,
+                    }
+                    for _, conn := range game.Players {
+                        conn.WriteJSON(winMsg)
+                    }
+                }
+            }
+            game.mu.Unlock()
+        }
+    }
+}
+
+func getNextTurn(current string) string {
+    if current == "X" {
+        return "O"
+    }
+    return "X"
+}
+
+func checkWinner(board [9]string) string {
+    // winning combinations
+    lines := [][3]int{
+        {0, 1, 2}, {3, 4, 5}, {6, 7, 8}, // rows
+        {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, // columns
+        {0, 4, 8}, {2, 4, 6}, // diagonals
+    }
+
+    for _, line := range lines {
+        if board[line[0]] != "" &&
+           board[line[0]] == board[line[1]] &&
+           board[line[1]] == board[line[2]] {
+            return board[line[0]]
+        }
+    }
+    
+    return ""
+}
