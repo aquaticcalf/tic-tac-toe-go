@@ -7,46 +7,44 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Finger+Paint&display=swap" rel="stylesheet">
     <style>
-      body {
-          background-color: #8E7AB5;
-          color: #EEA5A6;
-          font-family: 'Finger Paint', cursive;
-      }
+		body {
+			font-family: 'Finger Paint', cursive;
+		}
 
-      .box {
-          border-right: 2px solid;
-          border-bottom: 2px solid;
-      }
+		.box {
+			border-right: 2px solid;
+			border-bottom: 2px solid;
+		}
 
-      .box:nth-child(3n) {
-          border-right: none;
-      }
+		.box:nth-child(3n) {
+			border-right: none;
+		}
 
-      .box:nth-child(6) ~ .box {
-          border-bottom: none;
-      } 
+		.box:nth-child(6) ~ .box {
+			border-bottom: none;
+		}
 
-      #gameboard {
-          width: 300px;
-          display: flex;
-          flex-wrap: wrap;
-          margin-top: 40px;
-      }
+		#gameboard {
+			width: 300px;
+			display: flex;
+			flex-wrap: wrap;
+			margin-top: 40px;
+		}
     </style>
 </head>
-<body class="flex flex-col items-center justify-center min-h-screen">
+<body class="bg-[#EEA5A6] text-[#5010d0] flex flex-col items-center justify-center min-h-screen">
   <h1 class="text-[54px] uppercase">Tic Tac Toe</h1>
   <div class="status text-center font-bold mt-4" id="status">connecting...</div>
   <div class="board w-96" id="gameboard">
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="0"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="1"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="2"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="3"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="4"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="5"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="6"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="7"></button>
-    <button class="cell box h-[100px] w-[100px] text-3xl font-bold cursor-pointer" data-index="8"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="0"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="1"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="2"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="3"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="4"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="5"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="6"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="7"></button>
+    <button class="cell box h-[100px] w-[100px] text-5xl font-bold cursor-pointer" data-index="8"></button>
   </div>
 
   <script>
