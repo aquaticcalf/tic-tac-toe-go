@@ -3,13 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/gorilla/sessions"
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 	supa "github.com/nedpals/supabase-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
@@ -56,27 +59,51 @@ var (
 
 	supabaseClient *supa.Client
 
-	oauthConfig = &oauth2.Config{
-		ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
-		ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
-		Endpoint:     github.Endpoint,
-		RedirectURL:  "http://localhost:8080/auth/github/callback",
-		Scopes:       []string{"user"},
-	}
+	oauthConfig *oauth2.Config
+
+	store = sessions.NewCookieStore([]byte("your-secret-key"))
 )
 
 var connections = make(map[string]*websocket.Conn)
 
 func init() {
+	// Load .env file first
+	if err := godotenv.Load(); err != nil {
+		log.Printf("No .env file found")
+	}
+
+	// Setup logging
+	logFile, err := os.OpenFile("oauth_debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatal("Failed to open log file:", err)
+	}
+	mw := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(mw)
+
+	// Initialize OAuth config AFTER environment variables are loaded
+	oauthConfig = &oauth2.Config{
+		ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+		ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+		RedirectURL:  "http://localhost:8080/auth/github/callback",
+		Scopes:       []string{"user"},
+		Endpoint:     github.Endpoint,
+	}
+
+	// Initialize Supabase client with service role key
 	url := os.Getenv("SUPABASE_URL")
-	key := os.Getenv("SUPABASE_KEY")
+	key := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
 	supabaseClient = supa.CreateClient(url, key)
+
+	log.Printf("Initialized Supabase client with URL: %s", url)
 }
 
 func main() {
 	http.Handle("/", http.FileServer(http.Dir("static")))
+	http.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/auth.html")
+	})
 	http.HandleFunc("/auth/github/callback", handleGitHubCallback)
-	http.HandleFunc("/api/user", handleUserInfo)
+	http.HandleFunc("/api/user", handleUserCheck)
 	http.HandleFunc("/api/stats", handleStats)
 	http.HandleFunc("/api/logout", handleLogout)
 	http.HandleFunc("/ws", handleWebSocket)
@@ -92,12 +119,15 @@ func main() {
 
 func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
+	gameID := r.URL.Query().Get("state")
+
 	token, err := oauthConfig.Exchange(r.Context(), code)
 	if err != nil {
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
+	// Get GitHub user info
 	client := oauthConfig.Client(r.Context(), token)
 	resp, err := client.Get("https://api.github.com/user")
 	if err != nil {
@@ -106,43 +136,107 @@ func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	var githubUser struct {
-		ID        int    `json:"id"`
-		Login     string `json:"login"`
-		AvatarURL string `json:"avatar_url"`
-	}
-
+	var githubUser map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&githubUser); err != nil {
-		http.Error(w, "Failed to decode user info", http.StatusInternalServerError)
+		http.Error(w, "Failed to parse user info", http.StatusInternalServerError)
 		return
 	}
 
-	player := Player{
-		ID:        fmt.Sprintf("%d", githubUser.ID),
-		Name:      githubUser.Login,
-		AvatarURL: githubUser.AvatarURL,
-		Token:     token.AccessToken,
+	// Convert github_id to int64
+	var githubID int64
+	switch v := githubUser["id"].(type) {
+	case float64:
+		githubID = int64(v)
+	case int64:
+		githubID = v
+	default:
 	}
 
-	// Store player in Supabase
-	var result map[string]interface{}
-	err = supabaseClient.DB.From("players").Insert(player).Execute(&result)
+	// First, check if user exists
+	var existingUser []map[string]interface{}
+	err = supabaseClient.DB.From("github_users").
+		Select("*").
+		Eq("github_id", fmt.Sprintf("%d", githubID)).
+		Execute(&existingUser)
+
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	userData := map[string]interface{}{
+		"github_id":  githubID,
+		"username":   githubUser["login"],
+		"name":       githubUser["name"],
+		"avatar_url": githubUser["avatar_url"],
+		"github_url": githubUser["html_url"],
+		"updated_at": time.Now(),
+	}
+
+	var result []map[string]interface{}
+	if len(existingUser) > 0 {
+		// User exists, update (exclude github_id)
+		updateData := map[string]interface{}{
+			"username":   githubUser["login"],
+			"name":       githubUser["name"],
+			"avatar_url": githubUser["avatar_url"],
+			"github_url": githubUser["html_url"],
+			"updated_at": time.Now(),
+		}
+		err = supabaseClient.DB.From("github_users").
+			Update(updateData).
+			Eq("github_id", fmt.Sprintf("%d", githubID)).
+			Execute(&result)
+	} else {
+		// New user, insert (include github_id)
+		err = supabaseClient.DB.From("github_users").
+			Insert(userData).
+			Execute(&result)
+	}
+
 	if err != nil {
 		http.Error(w, "Failed to store user", http.StatusInternalServerError)
 		return
 	}
 
-	// Set session cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session_token",
-		Value:    token.AccessToken,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
-	})
+	if len(result) > 0 {
+		// Create a session cookie
+		session, err := store.Get(r, "session-name")
+		if err != nil {
+		}
+		session.Values["authenticated"] = true
+		session.Values["user_id"] = result[0]["id"]
+		err = session.Save(r, w)
+		if err != nil {
+		}
 
-	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		redirectURL := "/"
+		if gameID != "" {
+			redirectURL += "?game=" + gameID
+		}
+		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+		return
+	} else {
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	}
+}
+
+func handleUserCheck(w http.ResponseWriter, r *http.Request) {
+	session, err := store.Get(r, "session-name")
+	if err != nil {
+		http.Error(w, "Session error", http.StatusInternalServerError)
+		return
+	}
+
+	if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"authenticated": true,
+	})
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +249,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
@@ -164,7 +257,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	var players []Player
 	err = supabaseClient.DB.From("players").Select("*").Eq("token", token).Execute(&players)
 	if err != nil || len(players) == 0 {
-		log.Printf("Failed to get player: %v", err)
 		return
 	}
 	player := players[0]
@@ -401,7 +493,6 @@ func updateStats(playerID string, result string) {
 		"draws":     currentStats.Draws,
 	}).Execute(&upsertResult)
 	if err != nil {
-		log.Printf("Failed to update stats: %v", err)
 	}
 }
 

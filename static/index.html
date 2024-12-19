@@ -53,19 +53,8 @@
     </style>
 </head>
 <body class="bg-[#EEA5A6] text-[#5010d0] flex flex-col items-center justify-center min-h-screen">
-    <div id="auth-section" class="text-center mb-8">
-        <button id="login-button" onclick="loginWithGithub()" class="bg-[#2d333b] text-white px-6 py-3 rounded-lg flex items-center gap-2 hover:bg-opacity-90">
-            <svg viewBox="0 0 24 24" class="w-6 h-6 fill-current"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>            Sign in with GitHub
-        </button>
-        <div id="user-info" class="hidden">
-            <img id="avatar" class="w-12 h-12 rounded-full mx-auto mb-2" src="" alt="User avatar">
-            <p id="username" class="font-bold"></p>
-            <button onclick="logout()" class="mt-2 text-sm underline">Logout</button>
-        </div>
-    </div>
-
     <h1 class="text-[54px] uppercase">Tic Tac Toe</h1>
-    <div class="status text-center font-bold mt-4 text-xl" id="status">Please sign in to play</div>
+    <div class="status text-center font-bold mt-4 text-xl" id="status">Connecting...</div>
     
     <div id="game-container" class="hidden">
         <div class="board w-96" id="gameboard">
@@ -105,53 +94,22 @@
         const game_id = new URLSearchParams(window.location.search).get('game') || 
                         Math.random().toString(36).substring(2, 15)
         
-        function loginWithGithub() {
-            const client_id = 'Iv23ctQGlyurWHvfouGU'
-            const redirect_uri = encodeURIComponent(window.location.origin + '/auth/github/callback')
-            window.location.href = `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${redirect_uri}&scope=user`
-        }
-
         async function checkAuth() {
             try {
                 const response = await fetch('/api/user')
-                if (response.ok) {
-                    user_data = await response.json()
-                    showUserInfo()
-                    initGame()
-                } else {
-                    showLoginButton()
+                if (!response.ok) {
+                    throw new Error('Not authenticated')
                 }
+                const data = await response.json()
+                if (!data.authenticated) {
+                    throw new Error('Not authenticated')
+                }
+                document.getElementById('game-container').classList.remove('hidden')
+                document.getElementById('status').textContent = 'Connecting...'
+                initGame()
             } catch (error) {
                 console.error('Auth check failed:', error)
-                showLoginButton()
-            }
-        }
-
-        function showUserInfo() {
-            document.getElementById('login-button').classList.add('hidden')
-            document.getElementById('user-info').classList.remove('hidden')
-            document.getElementById('game-container').classList.remove('hidden')
-            document.getElementById('avatar').src = user_data.avatar_url
-            document.getElementById('username').textContent = user_data.login
-            updateStats()
-        }
-
-        function showLoginButton() {
-            document.getElementById('login-button').classList.remove('hidden')
-            document.getElementById('user-info').classList.add('hidden')
-            document.getElementById('game-container').classList.add('hidden')
-        }
-
-        async function logout() {
-            try {
-                await fetch('/api/logout', { method: 'POST' })
-                user_data = null
-                showLoginButton()
-                if (socket) {
-                    socket.close()
-                }
-            } catch (error) {
-                console.error('Logout failed:', error)
+                window.location.href = `/auth?game=${game_id}`
             }
         }
 
@@ -304,6 +262,8 @@
         }
 
         checkAuth()
+
+        window.onload = checkAuth
     </script>
 </body>
 </html>
