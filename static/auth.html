@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Finger+Paint&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Finger Paint', cursive;
+            font-family: 'Finger Paint', cursive
         }
     </style>
 </head>
@@ -23,39 +23,39 @@
     <script>
         // Configuration object to store environment variables
         const config = {
-            GITHUB_CLIENT_ID: 'YOUR_GITHUB_CLIENT_ID' // Replace with your actual client ID
-        };
+            GITHUB_CLIENT_ID: config.GITHUB_CLIENT_ID // Replace with your actual client ID
+        }
 
         const game_id = new URLSearchParams(window.location.search).get('game') || 
-            Math.random().toString(36).substring(2, 15);
+            Math.random().toString(36).substring(2, 15)
 
         async function loginWithGithub() {
-            const redirect_uri = encodeURIComponent(`${window.location.origin}/tictactoe/auth/github/callback`);
-            const state = game_id;
-            const githubUrl = `https://github.com/login/oauth/authorize?client_id=${config.GITHUB_CLIENT_ID}&redirect_uri=${redirect_uri}&state=${state}&scope=user`;
-            window.location.href = githubUrl;
+            const redirect_uri = encodeURIComponent(`${window.location.origin}/tictactoe/auth/github/callback`)
+            const state = game_id
+            const githubUrl = `https://github.com/login/oauth/authorize?client_id=${config.GITHUB_CLIENT_ID}&redirect_uri=${redirect_uri}&state=${state}&scope=user`
+            window.location.href = githubUrl
         }
 
         async function checkAuth() {
             try {
-                const response = await fetch('/api/user');
+                const response = await fetch('/tictactoe/api/user')
                 if (response.ok) {
-                    const data = await response.json();
+                    const data = await response.json()
                     if (data.authenticated) {
-                        const currentPath = window.location.pathname;
+                        const currentPath = window.location.pathname
                         if (currentPath === '/tictactoe/auth') {
-                            const gameParam = game_id ? `?game=${game_id}` : '';
-                            window.location.replace(`/tictactoe/${gameParam}`);
+                            const gameParam = game_id ? `?game=${game_id}` : ''
+                            window.location.replace(`/tictactoe/${gameParam}`)
                         }
                     }
                 }
             } catch (error) {
-                console.error('Auth check failed:', error);
+                console.error('Auth check failed:', error)
             }
         }
 
         // Run auth check when page loads
-        window.addEventListener('load', checkAuth);
+        window.addEventListener('load', checkAuth)
     </script>
 </body>
 </html>
