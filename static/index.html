@@ -130,28 +130,40 @@
         }
 
         function initGame() {
-            if (!user_data) return
+            if (!user_data) {
+                console.error('No user data available');
+                return;
+            }
 
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-            socket = new WebSocket(`${wsProtocol}//${window.location.host}/tictactoe/ws?game=${game_id}&token=${user_data.token}`)
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/tictactoe/ws?game=${game_id}&token=${user_data.token}`;
+            console.log('Attempting to connect to:', wsUrl);
+            
+            socket = new WebSocket(wsUrl);
             
             socket.onopen = () => {
-                document.getElementById('status').textContent = 'Connected! Waiting for opponent...'
-                document.getElementById('share-link').classList.remove('hidden')
-                document.getElementById('game-url').value = window.location.href
+                console.log('WebSocket connection established');
+                document.getElementById('status').textContent = 'Connected! Waiting for opponent...';
+                document.getElementById('share-link').classList.remove('hidden');
+                document.getElementById('game-url').value = window.location.href;
             }
 
-            socket.onclose = () => {
-                document.getElementById('status').textContent = 'Disconnected - Please refresh the page'
-                disableBoard()
+            socket.onclose = (event) => {
+                console.error('WebSocket closed with code:', event.code, 'reason:', event.reason);
+                document.getElementById('status').textContent = 'Disconnected - Please refresh the page';
+                disableBoard();
             }
 
-            socket.onerror = () => {
-                document.getElementById('status').textContent = 'Connection error - Please refresh the page'
-                disableBoard()
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                document.getElementById('status').textContent = 'Connection error - Please refresh the page';
+                disableBoard();
             }
 
-            socket.onmessage = handleMessage
+            socket.onmessage = (event) => {
+                console.log('Received message:', event.data);
+                handleMessage(event);
+            }
         }
 
         function handleMessage(event) {
