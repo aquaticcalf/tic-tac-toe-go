@@ -96,13 +96,19 @@
         
         async function checkAuth() {
             try {
-                const response = await fetch('/tictactoe/api/user')
+                console.log('Checking auth...');
+                const response = await fetch('/tictactoe/api/user');
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    throw new Error('Not authenticated')
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const data = await response.json()
+                
+                const data = await response.json();
+                console.log('Auth data:', data);
+                
                 if (!data.authenticated) {
-                    throw new Error('Not authenticated')
+                    throw new Error('Not authenticated');
                 }
 
                 // Create or get player token
