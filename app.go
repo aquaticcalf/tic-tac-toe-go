@@ -107,6 +107,7 @@ func main() {
 	http.HandleFunc("/api/stats", handleStats)
 	http.HandleFunc("/api/logout", handleLogout)
 	http.HandleFunc("/ws", handleWebSocket)
+	http.HandleFunc("/tictactoe/api/player", handlePlayer)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -569,4 +570,42 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+func handlePlayer(w http.ResponseWriter, r *http.Request) {
+	session, err := store.Get(r, "session-name")
+	if err != nil {
+		http.Error(w, "Session error", http.StatusInternalServerError)
+		return
+	}
+
+	userID, ok := session.Values["user_id"].(string)
+	if !ok {
+		http.Error(w, "User not found in session", http.StatusUnauthorized)
+		return
+	}
+
+	// Generate a token for the player
+	token := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// Create or update player in database
+	var result []map[string]interface{}
+	playerData := map[string]interface{}{
+		"user_id": userID,
+		"token":   token,
+	}
+
+	err = supabaseClient.DB.From("players").
+		Upsert(playerData).
+		Execute(&result)
+
+	if err != nil {
+		http.Error(w, "Failed to create player", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"token": token,
+	})
 }

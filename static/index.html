@@ -105,8 +105,15 @@
                     throw new Error('Not authenticated')
                 }
 
-                const token = Math.random().toString(36).substring(2, 15);
-                user_data = { token: token };
+                // Create or get player token
+                const playerResponse = await fetch('/tictactoe/api/player', {
+                    method: 'POST'
+                });
+                if (!playerResponse.ok) {
+                    throw new Error('Failed to create player');
+                }
+                const playerData = await playerResponse.json();
+                user_data = { token: playerData.token };
 
                 document.getElementById('game-container').classList.remove('hidden')
                 document.getElementById('status').textContent = 'Connecting...'
