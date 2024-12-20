@@ -84,7 +84,7 @@ func init() {
 	oauthConfig = &oauth2.Config{
 		ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
 		ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
-		RedirectURL:  "http://localhost:8080/auth/github/callback",
+		RedirectURL:  "https://games.aqclf.xyz/tictactoe/auth/github/callback",
 		Scopes:       []string{"user"},
 		Endpoint:     github.Endpoint,
 	}
