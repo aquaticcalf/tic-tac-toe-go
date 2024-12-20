@@ -34,7 +34,7 @@
         // Check if already authenticated
         async function checkAuth() {
             try {
-                const response = await fetch('/api/user')
+                const response = await fetch('/tictactoe/api/user')
                 if (response.ok) {
                     const data = await response.json()
                     if (data.authenticated) {
