@@ -96,7 +96,7 @@
         
         async function checkAuth() {
             try {
-                const response = await fetch('/api/user')
+                const response = await fetch('/tictactoe/api/user')
                 if (!response.ok) {
                     throw new Error('Not authenticated')
                 }
@@ -109,13 +109,13 @@
                 initGame()
             } catch (error) {
                 console.error('Auth check failed:', error)
-                window.location.href = `/auth?game=${game_id}`
+                window.location.href = `/tictactoe/auth?game=${game_id}`
             }
         }
 
         async function updateStats() {
             try {
-                const response = await fetch('/api/stats')
+                const response = await fetch('/tictactoe/api/stats')
                 const stats = await response.json()
                 document.getElementById('wins').textContent = stats.wins
                 document.getElementById('losses').textContent = stats.losses
@@ -128,7 +128,7 @@
         function initGame() {
             if (!user_data) return
 
-            socket = new WebSocket(`ws://${window.location.host}/ws?game=${game_id}&token=${user_data.token}`)
+            socket = new WebSocket(`ws://${window.location.host}/tictactoe/ws?game=${game_id}&token=${user_data.token}`)
             
             socket.onopen = () => {
                 document.getElementById('status').textContent = 'Connected! Waiting for opponent...'
