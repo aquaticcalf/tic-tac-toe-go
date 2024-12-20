@@ -38,9 +38,12 @@
                 if (response.ok) {
                     const data = await response.json()
                     if (data.authenticated) {
-                        // If authenticated, redirect to game
-                        const gameId = new URLSearchParams(window.location.search).get('game') || ''
-                        window.location.href = gameId ? `/tictactoe/?game=${gameId}` : '/tictactoe/'
+                        // Add a check to prevent redirect loops
+                        if (window.location.pathname === '/tictactoe/auth') {
+                            // If authenticated and on auth page, redirect to game
+                            const gameId = new URLSearchParams(window.location.search).get('game') || ''
+                            window.location.href = gameId ? `/tictactoe/?game=${gameId}` : '/tictactoe/'
+                        }
                     }
                 }
             } catch (error) {
