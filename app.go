@@ -119,10 +119,10 @@ func main() {
 
 func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received GitHub callback request")
-	
+
 	code := r.URL.Query().Get("code")
 	gameID := r.URL.Query().Get("state")
-	
+
 	if code == "" {
 		log.Printf("Error: Missing OAuth code")
 		http.Error(w, "Missing OAuth code", http.StatusBadRequest)
@@ -223,7 +223,7 @@ func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 
 	session.Values["authenticated"] = true
 	session.Values["user_id"] = result[0]["id"]
-	
+
 	if err := session.Save(r, w); err != nil {
 		log.Printf("Error saving session: %v", err)
 		http.Error(w, "Failed to save session", http.StatusInternalServerError)
