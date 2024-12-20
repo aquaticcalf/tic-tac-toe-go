@@ -98,15 +98,18 @@ func init() {
 }
 
 func main() {
-	http.Handle("/", http.FileServer(http.Dir("static")))
-	http.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
+
+	http.Handle("/tictactoe/", http.StripPrefix("/tictactoe/", http.FileServer(http.Dir("static"))))
+
+	http.HandleFunc("/tictactoe/auth", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "static/auth.html")
 	})
-	http.HandleFunc("/auth/github/callback", handleGitHubCallback)
-	http.HandleFunc("/api/user", handleUserCheck)
-	http.HandleFunc("/api/stats", handleStats)
-	http.HandleFunc("/api/logout", handleLogout)
-	http.HandleFunc("/ws", handleWebSocket)
+
+	http.HandleFunc("/tictactoe/auth/github/callback", handleGitHubCallback)
+	http.HandleFunc("/tictactoe/api/user", handleUserCheck)
+	http.HandleFunc("/tictactoe/api/stats", handleStats)
+	http.HandleFunc("/tictactoe/api/logout", handleLogout)
+	http.HandleFunc("/tictactoe/ws", handleWebSocket)
 
 	port := os.Getenv("PORT")
 	if port == "" {
