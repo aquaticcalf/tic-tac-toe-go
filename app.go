@@ -231,7 +231,7 @@ func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redirect with game ID if present
-	redirectURL := "/"
+	redirectURL := "/tictactoe/"
 	if gameID != "" {
 		redirectURL += "?game=" + gameID
 	}
