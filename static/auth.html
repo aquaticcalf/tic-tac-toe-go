@@ -20,15 +20,19 @@
         </svg>
         Sign in with GitHub
     </button>
-    
     <script>
+        // Configuration object to store environment variables
+        const config = {
+            GITHUB_CLIENT_ID: 'YOUR_GITHUB_CLIENT_ID' // Replace with your actual client ID
+        };
+
         const game_id = new URLSearchParams(window.location.search).get('game') || 
             Math.random().toString(36).substring(2, 15);
 
         async function loginWithGithub() {
             const redirect_uri = encodeURIComponent(`${window.location.origin}/tictactoe/auth/github/callback`);
             const state = game_id;
-            const githubUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${redirect_uri}&state=${state}&scope=user`;
+            const githubUrl = `https://github.com/login/oauth/authorize?client_id=${config.GITHUB_CLIENT_ID}&redirect_uri=${redirect_uri}&state=${state}&scope=user`;
             window.location.href = githubUrl;
         }
 
