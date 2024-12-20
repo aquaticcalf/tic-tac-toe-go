@@ -89,6 +89,10 @@ func init() {
 		Endpoint:     github.Endpoint,
 	}
 
+	// Add debug logging
+	log.Printf("Initialized OAuth config with ClientID: %s and RedirectURL: %s",
+		oauthConfig.ClientID, oauthConfig.RedirectURL)
+
 	// Initialize Supabase client with service role key
 	url := os.Getenv("SUPABASE_URL")
 	key := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
