@@ -22,9 +22,10 @@
     </button>
     <script>
         const game_id = new URLSearchParams(window.location.search).get('game') || Math.random().toString(36).substring(2, 15);
+        let checkingAuth = false;  // Flag to prevent multiple simultaneous checks
         
         function loginWithGithub() {
-            const GITHUB_CLIENT_ID = "Iv23ctQGlyurWHvfouGU"
+            const GITHUB_CLIENT_ID = "Iv23ctQGlyurWHvfouGU";
             const redirect_uri = encodeURIComponent(`${window.location.origin}/tictactoe/auth/github/callback`);
             const state = game_id;
             const githubUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${redirect_uri}&state=${state}&scope=user`;
@@ -32,25 +33,47 @@
         }
 
         async function checkAuth() {
+            // Prevent multiple simultaneous checks
+            if (checkingAuth) return;
+            checkingAuth = true;
+
             try {
+                // Check if we're already in a redirect loop
+                const redirectCount = parseInt(sessionStorage.getItem('redirectCount') || '0');
+                if (redirectCount > 2) {
+                    console.error('Too many redirects, stopping auth check');
+                    sessionStorage.removeItem('redirectCount');
+                    checkingAuth = false;
+                    return;
+                }
+
                 const response = await fetch('/tictactoe/api/user');
                 if (response.ok) {
                     const data = await response.json();
                     if (data.authenticated) {
                         const currentPath = window.location.pathname;
                         if (currentPath === '/tictactoe/auth') {
+                            sessionStorage.setItem('redirectCount', (redirectCount + 1).toString());
                             const gameParam = game_id ? `?game=${game_id}` : '';
-                            window.location.replace(`/tictactoe/${gameParam}`);
+                            window.location.replace(`/tictactoe${gameParam}`);
+                            return;
                         }
                     }
                 }
+                
+                // Reset redirect count if we get here without redirecting
+                sessionStorage.removeItem('redirectCount');
             } catch (error) {
                 console.error('Auth check failed:', error);
+            } finally {
+                checkingAuth = false;
             }
         }
 
-        // Run auth check when page loads
-        window.addEventListener('load', checkAuth);
+        // Run auth check when page loads, but only if we haven't been redirected too many times
+        if (parseInt(sessionStorage.getItem('redirectCount') || '0') <= 2) {
+            window.addEventListener('load', checkAuth);
+        }
     </script>
 </body>
 </html>
