@@ -118,11 +118,21 @@ func main() {
 }
 
 func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received GitHub callback request")
+	
 	code := r.URL.Query().Get("code")
 	gameID := r.URL.Query().Get("state")
+	
+	if code == "" {
+		log.Printf("Error: Missing OAuth code")
+		http.Error(w, "Missing OAuth code", http.StatusBadRequest)
+		return
+	}
 
+	// Exchange code for token
 	token, err := oauthConfig.Exchange(r.Context(), code)
 	if err != nil {
+		log.Printf("Error exchanging OAuth code: %v", err)
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
@@ -131,6 +141,7 @@ func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	client := oauthConfig.Client(r.Context(), token)
 	resp, err := client.Get("https://api.github.com/user")
 	if err != nil {
+		log.Printf("Error fetching GitHub user info: %v", err)
 		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
 		return
 	}
@@ -138,87 +149,95 @@ func handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 
 	var githubUser map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&githubUser); err != nil {
+		log.Printf("Error decoding GitHub response: %v", err)
 		http.Error(w, "Failed to parse user info", http.StatusInternalServerError)
 		return
 	}
 
-	// Convert github_id to int64
-	var githubID int64
-	switch v := githubUser["id"].(type) {
-	case float64:
-		githubID = int64(v)
-	case int64:
-		githubID = v
-	default:
+	// Safely convert github_id to int64
+	githubID, ok := githubUser["id"].(float64)
+	if !ok {
+		log.Printf("Error: Invalid GitHub ID format")
+		http.Error(w, "Invalid GitHub user data", http.StatusInternalServerError)
+		return
 	}
 
-	// First, check if user exists
+	// Check if user exists
 	var existingUser []map[string]interface{}
 	err = supabaseClient.DB.From("github_users").
 		Select("*").
-		Eq("github_id", fmt.Sprintf("%d", githubID)).
+		Eq("github_id", fmt.Sprintf("%d", int64(githubID))).
 		Execute(&existingUser)
 
 	if err != nil {
+		log.Printf("Error checking existing user: %v", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
+	// Prepare user data
 	userData := map[string]interface{}{
-		"github_id":  githubID,
+		"github_id":  int64(githubID),
 		"username":   githubUser["login"],
 		"name":       githubUser["name"],
 		"avatar_url": githubUser["avatar_url"],
 		"github_url": githubUser["html_url"],
-		"updated_at": time.Now(),
+		"updated_at": time.Now().UTC(),
 	}
 
 	var result []map[string]interface{}
 	if len(existingUser) > 0 {
-		// User exists, update (exclude github_id)
-		updateData := map[string]interface{}{
-			"username":   githubUser["login"],
-			"name":       githubUser["name"],
-			"avatar_url": githubUser["avatar_url"],
-			"github_url": githubUser["html_url"],
-			"updated_at": time.Now(),
-		}
+		// Update existing user
+		log.Printf("Updating existing user with GitHub ID: %d", int64(githubID))
 		err = supabaseClient.DB.From("github_users").
-			Update(updateData).
-			Eq("github_id", fmt.Sprintf("%d", githubID)).
+			Update(userData).
+			Eq("github_id", fmt.Sprintf("%d", int64(githubID))).
 			Execute(&result)
 	} else {
-		// New user, insert (include github_id)
+		// Insert new user
+		log.Printf("Creating new user with GitHub ID: %d", int64(githubID))
 		err = supabaseClient.DB.From("github_users").
 			Insert(userData).
 			Execute(&result)
 	}
 
 	if err != nil {
+		log.Printf("Error storing user data: %v", err)
 		http.Error(w, "Failed to store user", http.StatusInternalServerError)
 		return
 	}
 
-	if len(result) > 0 {
-		// Create a session cookie
-		session, err := store.Get(r, "session-name")
-		if err != nil {
-		}
-		session.Values["authenticated"] = true
-		session.Values["user_id"] = result[0]["id"]
-		err = session.Save(r, w)
-		if err != nil {
-		}
-
-		redirectURL := "/"
-		if gameID != "" {
-			redirectURL += "?game=" + gameID
-		}
-		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	if len(result) == 0 {
+		log.Printf("Error: Empty result after user operation")
+		http.Error(w, "Failed to store user", http.StatusInternalServerError)
 		return
-	} else {
-		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 	}
+
+	// Create session
+	session, err := store.Get(r, "session-name")
+	if err != nil {
+		log.Printf("Error getting session: %v", err)
+		http.Error(w, "Session error", http.StatusInternalServerError)
+		return
+	}
+
+	session.Values["authenticated"] = true
+	session.Values["user_id"] = result[0]["id"]
+	
+	if err := session.Save(r, w); err != nil {
+		log.Printf("Error saving session: %v", err)
+		http.Error(w, "Failed to save session", http.StatusInternalServerError)
+		return
+	}
+
+	// Redirect with game ID if present
+	redirectURL := "/"
+	if gameID != "" {
+		redirectURL += "?game=" + gameID
+	}
+
+	log.Printf("Successfully processed GitHub callback for user ID: %v", result[0]["id"])
+	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
 func handleUserCheck(w http.ResponseWriter, r *http.Request) {
