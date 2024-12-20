@@ -26,7 +26,7 @@
 
         function loginWithGithub() {
             const client_id = 'Iv23ctQGlyurWHvfouGU'
-            const redirect_uri = encodeURIComponent(window.location.origin + '/auth/github/callback')
+            const redirect_uri = encodeURIComponent(window.location.origin + '/tictactoe/auth/github/callback')
             const state = game_id
             window.location.href = `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${redirect_uri}&state=${state}&scope=user`
         }
@@ -40,7 +40,7 @@
                     if (data.authenticated) {
                         // If authenticated, redirect to game
                         const gameId = new URLSearchParams(window.location.search).get('game') || ''
-                        window.location.href = gameId ? `/?game=${gameId}` : '/'
+                        window.location.href = gameId ? `/tictactoe/?game=${gameId}` : '/tictactoe/'
                     }
                 }
             } catch (error) {
